@@ -1,28 +1,23 @@
 
-# Stage 1: Build Spring Boot application
+# Build stage
 FROM eclipse-temurin:21-jdk AS build
 
 WORKDIR /app
 
-COPY mvnw pom.xml ./
+COPY pom.xml mvnw ./
 COPY .mvn .mvn
-
-RUN chmod +x mvnw
-
 COPY src ./src
 
-RUN ./mvnw -B -DskipTests clean package
+RUN chmod +x mvnw
+RUN ./mvnw clean package -DskipTests
 
-# Stage 2: Run application
+# Run stage
 FROM eclipse-temurin:21-jre
 
 WORKDIR /app
 
-COPY --from=build /app/target/nit-0.0.1-SNAPSHOT.jar app.jar
-
-RUN mkdir -p /app/uploads
+COPY --from=build /app/target/*.jar app.jar
 
 EXPOSE 8080
 
-ENTRYPOINT ["java", "-jar", "app.jar"]
-
+ENTRYPOINT ["sh", "-c", "java -Dserver.port=${PORT:-8080} -jar app.jar"]
