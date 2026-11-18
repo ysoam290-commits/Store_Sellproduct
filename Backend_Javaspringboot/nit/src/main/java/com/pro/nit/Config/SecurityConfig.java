@@ -1,3 +1,4 @@
+
 package com.pro.nit.Config;
 
 import com.pro.nit.Entity.User;
@@ -32,26 +33,29 @@ public class SecurityConfig {
 
     private final JwtAuthenticationFilter jwtAuthenticationFilter;
 
+    // Password Encoder
     @Bean
     public PasswordEncoder passwordEncoder() {
         return new BCryptPasswordEncoder();
     }
 
-    // CORS configuration
+    // CORS Configuration
     @Bean
     public CorsConfigurationSource corsConfigurationSource() {
 
         CorsConfiguration configuration = new CorsConfiguration();
 
+        // Allowed frontend origins
         configuration.setAllowedOrigins(List.of(
+                "https://store-sellproducts.vercel.app",
                 "http://localhost:5173",
                 "http://localhost:5174",
                 "http://localhost:3000",
                 "http://127.0.0.1:5173",
-                "http://127.0.0.1:5174",
-                "https://store-sellproducts.vercel.app"
+                "http://127.0.0.1:5174"
         ));
 
+        // Allowed HTTP methods
         configuration.setAllowedMethods(List.of(
                 "GET",
                 "POST",
@@ -61,8 +65,14 @@ public class SecurityConfig {
                 "OPTIONS"
         ));
 
+        // Allowed request headers
         configuration.setAllowedHeaders(List.of("*"));
+
+        // Allow credentials
         configuration.setAllowCredentials(true);
+
+        // Cache preflight response for one hour
+        configuration.setMaxAge(3600L);
 
         UrlBasedCorsConfigurationSource source =
                 new UrlBasedCorsConfigurationSource();
@@ -72,6 +82,7 @@ public class SecurityConfig {
         return source;
     }
 
+    // User Details Service
     @Bean
     public UserDetailsService userDetailsService(
             UserRepository userRepository
@@ -133,18 +144,20 @@ public class SecurityConfig {
         };
     }
 
+    // Spring Security Filter Chain
     @Bean
     public SecurityFilterChain securityFilterChain(
             HttpSecurity http
     ) throws Exception {
 
         http
+
+                // Enable CORS
                 .cors(cors ->
                         cors.configurationSource(corsConfigurationSource())
                 )
 
-                // Suitable for stateless JWT authentication.
-                // Do not disable CSRF if you authenticate using cookies/sessions.
+                // Stateless JWT authentication
                 .csrf(csrf -> csrf.disable())
 
                 .sessionManagement(session ->
@@ -153,13 +166,16 @@ public class SecurityConfig {
                         )
                 )
 
+                // Authorization Rules
                 .authorizeHttpRequests(auth -> auth
 
-                        // Allow browser CORS preflight requests.
-                        .requestMatchers(HttpMethod.OPTIONS, "/**")
-                        .permitAll()
+                        // Allow all CORS preflight requests
+                        .requestMatchers(
+                                HttpMethod.OPTIONS,
+                                "/**"
+                        ).permitAll()
 
-                        // Public authentication endpoints.
+                        // Public Authentication APIs
                         .requestMatchers(
                                 "/api/auth/login",
                                 "/api/auth/register",
@@ -167,50 +183,59 @@ public class SecurityConfig {
                                 "/api/auth/reset-password"
                         ).permitAll()
 
-                        // Public uploaded images.
+                        // Public uploaded images
                         .requestMatchers("/uploads/**")
                         .permitAll()
 
-                        // Public product GET endpoints.
+                        // Admin-only User Management
+                        .requestMatchers(
+                                "/api/user",
+                                "/api/user/**"
+                        ).hasRole("ADMIN")
 
-                        // Admin-only user and role management endpoints.
-                        .requestMatchers("/api/user", "/api/user/**")
-                        .hasRole("ADMIN")
-
+                        // Admin-only Role Management
                         .requestMatchers(
                                 "/api/roles",
                                 "/api/roles/**"
                         ).hasRole("ADMIN")
 
-                        // Admin-only product creation.
+                        // Admin-only Product Creation
                         .requestMatchers(
                                 HttpMethod.POST,
                                 "/api/products",
                                 "/api/products/**"
                         ).hasRole("ADMIN")
 
-                        // Admin-only product update.
+                        // Admin-only Product Update
                         .requestMatchers(
                                 HttpMethod.PUT,
                                 "/api/products",
                                 "/api/products/**"
                         ).hasRole("ADMIN")
 
-                        // Admin-only product deletion.
+                        // Admin-only Product Partial Update
+                        .requestMatchers(
+                                HttpMethod.PATCH,
+                                "/api/products",
+                                "/api/products/**"
+                        ).hasRole("ADMIN")
+
+                        // Admin-only Product Deletion
                         .requestMatchers(
                                 HttpMethod.DELETE,
                                 "/api/products",
                                 "/api/products/**"
                         ).hasRole("ADMIN")
 
-                        // Payment endpoints require a valid JWT login.
+                        // Payment APIs require authentication
                         .requestMatchers("/api/payments/**")
                         .authenticated()
 
-                        // All other endpoints require authentication.
+                        // All remaining APIs require login
                         .anyRequest().authenticated()
                 )
 
+                // JWT Authentication Filter
                 .addFilterBefore(
                         jwtAuthenticationFilter,
                         UsernamePasswordAuthenticationFilter.class
