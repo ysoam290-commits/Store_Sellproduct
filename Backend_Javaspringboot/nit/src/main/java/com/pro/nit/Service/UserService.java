@@ -105,6 +105,7 @@ public class UserService {
         user.setEmail(email);
         user.setPhone(phone);
 
+        // Always encode password for new users
         user.setPassword(
                 passwordEncoder.encode(request.getPassword())
         );
@@ -128,24 +129,19 @@ public class UserService {
         profile.setAddress(normalize(request.getAddress()));
         profile.setImage(normalize(request.getImage()));
 
-        // Convert String DOB to LocalDate
         profile.setDob(parseDob(request.getDob()));
 
         // =====================================
         // 3. Connect User and UserProfile
         // =====================================
 
-        // UserProfile is the owning side of the relationship.
         profile.setUser(user);
-
-        // User is the inverse side.
         user.setProfile(profile);
 
         // =====================================
         // 4. Save User and Profile
         // =====================================
 
-        // CascadeType.ALL saves UserProfile automatically.
         User savedUser = userRepository.save(user);
 
         // =====================================
@@ -168,7 +164,9 @@ public class UserService {
     // LOGIN
     // =========================================
 
-    @Transactional(readOnly = true)
+    // Changed from readOnly = true because legacy
+    // password migration needs to update the database.
+    @Transactional
     public UserLoginResponse login(UserLoginRequest req) {
 
         if (req == null
@@ -186,6 +184,10 @@ public class UserService {
         String rawPassword = req.getPassword();
 
         User user;
+
+        // =====================================
+        // Find user by email or phone
+        // =====================================
 
         if (identifier.contains("@")) {
 
@@ -210,21 +212,60 @@ public class UserService {
                     );
         }
 
+        // =====================================
+        // Check account status
+        // =====================================
+
         if (!user.isActive()) {
             throw new IllegalArgumentException(
                     "Your account is inactive."
             );
         }
 
+        // =====================================
+        // Validate and migrate password
+        // =====================================
+
         String storedPassword = user.getPassword();
 
-        if (storedPassword == null
-                || storedPassword.isBlank()
-                || !passwordEncoder.matches(
-                rawPassword,
-                storedPassword
-        )) {
+        if (storedPassword == null || storedPassword.isBlank()) {
+            throw new IllegalArgumentException(
+                    "Invalid email or password."
+            );
+        }
 
+        boolean passwordValid = false;
+
+        // 1. Check BCrypt password first
+        if (isBcryptPassword(storedPassword)) {
+
+            passwordValid = passwordEncoder.matches(
+                    rawPassword,
+                    storedPassword
+            );
+
+        } else {
+
+            // 2. Temporary support for legacy plain-text accounts
+            passwordValid = Objects.equals(
+                    rawPassword,
+                    storedPassword
+            );
+
+            // 3. Upgrade legacy password to BCrypt automatically
+            if (passwordValid) {
+
+                String upgradedPassword =
+                        passwordEncoder.encode(rawPassword);
+
+                user.setPassword(upgradedPassword);
+
+                userRepository.save(user);
+            }
+        }
+
+        // 4. Reject invalid password
+        if (!passwordValid) {
             throw new IllegalArgumentException(
                     "Invalid email or password."
             );
@@ -308,6 +349,18 @@ public class UserService {
     }
 
     // =========================================
+    // HELPER: Detect BCrypt format
+    // =========================================
+
+    private boolean isBcryptPassword(String password) {
+
+        return password != null
+                && (password.startsWith("$2a$")
+                || password.startsWith("$2b$")
+                || password.startsWith("$2y$"));
+    }
+
+    // =========================================
     // HELPER: Normalize String
     // =========================================
 
@@ -331,6 +384,7 @@ public class UserService {
         }
 
         try {
+
             return LocalDate.parse(dob.trim());
 
         } catch (DateTimeParseException exception) {
